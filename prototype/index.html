@@ -1,0 +1,1192 @@
+<title>FogRail Control Room</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: control-room console. Pit map (digital twin) left, driver HUD right, scenario bar, KPI strip, then fleet / log / fail-safe panels. */
+:root{
+  color-scheme: dark;
+  --ground:#0e1315;      /* control room floor, slate with a green bias */
+  --panel:#151c1f;
+  --panel-2:#1b2427;
+  --line:#28343a;
+  --fg:#e4ebe8;
+  --muted:#8b9b99;
+  --ore:#c4683f;         /* Bailadila laterite / iron ore */
+  --ore-deep:#6b3a26;
+  --hud:#5fdcd0;         /* HUD virtual road */
+  --go:#4cc38a;
+  --warn:#e8b23a;
+  --stop:#e5534b;
+  --person:#d681e0;
+  --font-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --font-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{background:var(--ground);color:var(--fg)}
+body{font-family:var(--font-body);font-size:14px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px 32px}
+.wrap{max-width:1480px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+h1,h2,h3{font-family:var(--font-display);font-weight:600;letter-spacing:.02em;margin:0;text-wrap:balance}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.label{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.09em;font-size:12px;color:var(--muted);font-weight:600}
+button{font:inherit;color:var(--fg);background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--hud);outline-offset:2px}
+button.on{background:color-mix(in srgb,var(--hud) 18%,var(--panel-2));border-color:var(--hud)}
+button.danger{border-color:color-mix(in srgb,var(--stop) 55%,var(--line))}
+button.danger.on{background:color-mix(in srgb,var(--stop) 25%,var(--panel-2));border-color:var(--stop)}
+button.cta{background:color-mix(in srgb,var(--go) 22%,var(--panel-2));border-color:var(--go)}
+
+/* header */
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding-block:6px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand h1{font-size:34px;font-weight:700;letter-spacing:.04em}
+.brand h1 span{color:var(--ore)}
+.brand p{margin:0;color:var(--muted)}
+.clock{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.clock .time{font-size:22px;font-family:var(--font-mono);padding-inline:6px}
+
+/* main grid */
+.main{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.panel-head h2{font-size:20px}
+.mapbox{position:relative;width:100%;aspect-ratio:1300/740;max-width:100%;border-radius:4px;overflow:hidden;background:#1a1411}
+.mapbox canvas{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;color:var(--muted);font-size:12px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.hudbox{position:relative;width:100%;aspect-ratio:16/10;max-width:100%;border-radius:4px;overflow:hidden;background:#222}
+.hudbox canvas{position:absolute;inset:0;width:100%;height:100%}
+.truckpick{display:flex;flex-wrap:wrap;gap:6px}
+.truckpick button{padding:4px 9px;font-family:var(--font-mono)}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.fact{background:var(--panel-2);border-radius:4px;padding:6px 8px;min-width:0}
+.fact b{display:block;font-family:var(--font-mono);font-weight:500;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* scenario bar */
+.scenario{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:12px}
+.group{display:flex;flex-direction:column;gap:8px;min-width:0}
+.btnrow{display:flex;flex-wrap:wrap;gap:6px}
+.fogrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.fogrow input[type=range]{flex:1;min-width:140px;accent-color:var(--hud)}
+.chip{display:inline-block;padding:2px 8px;border-radius:999px;font-family:var(--font-display);text-transform:uppercase;letter-spacing:.08em;font-size:12px;font-weight:600;border:1px solid currentColor}
+.chip.clear{color:var(--go)} .chip.caution{color:var(--warn)} .chip.fog{color:#f08a4b} .chip.dense{color:var(--stop)}
+.hint{color:var(--muted);font-size:12px;margin:0}
+
+/* KPI strip */
+.kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:12px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}
+.kpi .v{font-family:var(--font-display);font-size:30px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}
+.kpi .s{color:var(--muted);font-size:12px}
+.kpi.hero{grid-column:span 2}
+.bars{display:flex;flex-direction:column;gap:5px;margin-top:6px}
+.bar{display:grid;grid-template-columns:96px minmax(0,1fr) 64px;align-items:center;gap:8px;font-size:12px}
+.bar .track{height:10px;background:var(--panel-2);border-radius:2px;overflow:hidden}
+.bar .fill{height:100%;border-radius:2px;transition:width .4s}
+.bar .num{text-align:right;font-family:var(--font-mono)}
+
+/* lower panels */
+.lower{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,1fr);gap:12px}
+.lower2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:12px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.08em;font-size:11px;color:var(--muted);text-align:left;font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line)}
+td{padding:5px 6px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);white-space:nowrap}
+td.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;text-align:right}
+tr.sel td{background:color-mix(in srgb,var(--hud) 10%,transparent)}
+tbody tr{cursor:pointer}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.log{list-style:none;margin:0;padding:0;max-height:260px;overflow-y:auto;font-size:13px;display:flex;flex-direction:column}
+.log li{display:grid;grid-template-columns:48px minmax(0,1fr);gap:8px;padding:4px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.log li time{font-family:var(--font-mono);color:var(--muted);font-size:12px}
+.log li.warn span{color:var(--warn)} .log li.stop span{color:var(--stop)} .log li.go span{color:var(--go)} .log li.info span{color:var(--fg)}
+.ladder tr.active td{background:color-mix(in srgb,var(--warn) 16%,transparent)}
+.ladder td{white-space:normal}
+.actions{display:flex;flex-direction:column;gap:6px}
+.layers{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.layers li{display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px;font-size:13px}
+.layers li b{font-family:var(--font-display);text-transform:uppercase;letter-spacing:.06em;font-size:13px;color:var(--hud);font-weight:600}
+.chartbox{position:relative;width:100%;aspect-ratio:16/9;max-width:100%}
+.chartbox canvas{position:absolute;inset:0;width:100%;height:100%}
+footer{color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:10px}
+
+@media (max-width:1100px){
+  .main,.scenario,.lower,.lower2{grid-template-columns:minmax(0,1fr)}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kpi.hero{grid-column:span 2}
+}
+@media (max-width:480px){
+  .facts{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .brand h1{font-size:28px}
+  .clock{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){.bar .fill{transition:none}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="brand">
+    <h1>FOG<span>RAIL</span> <small style="font-size:16px;color:var(--muted);letter-spacing:.08em">2.0</small></h1>
+    <p>Instrument flying for haul trucks: drive the road you can't see · SIH26007 (NMDC) · Team LoopHole</p>
+  </div>
+  <div class="clock">
+    <span class="label">Shift clock</span><span class="time" id="clock">06:00:00</span>
+    <button id="play" aria-label="Pause simulation">Pause</button>
+    <span class="label">Speed</span>
+    <span class="btnrow" id="speeds"></span>
+    <button id="reset">Reset shift</button>
+  </div>
+</header>
+
+<section class="main">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Pit digital twin · Bailadila-style bench mine</h2>
+      <span class="label">Click a truck to follow it</span>
+    </div>
+    <div class="mapbox"><canvas id="map" aria-label="Live pit map with trucks, road blocks and V2V links"></canvas></div>
+    <div class="legend">
+      <span><i style="background:var(--ore)"></i>Loaded dumper</span>
+      <span><i style="background:#8fa6b2"></i>Empty dumper</span>
+      <span><i style="background:var(--go)"></i>Block clear</span>
+      <span><i style="background:var(--stop)"></i>Block occupied</span>
+      <span><i style="background:var(--hud)"></i>V2V link</span>
+      <span><i style="background:var(--person)"></i>Worker (UWB tag)</span>
+      <span><i style="background:#fff;opacity:.6"></i>Fog density</span>
+      <span><i style="background:rgba(95,220,208,.45)"></i>Radar cone · road scanned &lt;15 s ago</span>
+      <span><i style="background:#e8b23a"></i>Fog Train coupling</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Driver HUD · <span id="hudTitle" class="mono">T1</span></h2>
+      <span class="btnrow"><button id="synth" class="on" aria-pressed="true">Synthetic view</button><button id="voice">Voice: off</button></span>
+    </div>
+    <div class="hudbox"><canvas id="hud" aria-label="Windshield heads-up display of the selected truck"></canvas></div>
+    <div class="truckpick" id="truckpick"></div>
+    <div class="facts">
+      <div class="fact"><span class="label">Speed / advised</span><b id="fSpeed">0 / 0 km/h</b></div>
+      <div class="fact"><span class="label">Confirmed clear</span><b id="fClear">0 m</b></div>
+      <div class="fact"><span class="label">Stopping dist.</span><b id="fStop">0 m</b></div>
+      <div class="fact"><span class="label">Position</span><b id="fPos">RTK fix</b></div>
+      <div class="fact"><span class="label">Radar own / fleet</span><b id="fV2V">0 / 0 m</b></div>
+      <div class="fact"><span class="label">Limited by</span><b id="fWhy">road limit</b></div>
+    </div>
+  </div>
+</section>
+
+<section class="panel scenario">
+  <div class="group">
+    <span class="label">Weather · visibility on haul roads</span>
+    <div class="fogrow">
+      <input type="range" id="fog" min="0" max="100" step="0.5" value="11" aria-label="Visibility">
+      <span class="mono" id="fogVal" style="min-width:58px">5 m</span>
+      <span class="chip dense" id="fogChip">Dense fog</span>
+    </div>
+    <div class="btnrow">
+      <button data-vis="5">Monsoon morning · 5 m</button>
+      <button data-vis="25">Fog · 25 m</button>
+      <button data-vis="300">Clear day</button>
+      <button id="fogShow" class="on" aria-pressed="true">Fog overlay</button>
+      <button id="drift" class="on" aria-pressed="true">Fog bank drifts</button>
+    </div>
+    <p class="hint">The fog bank rolls across the pit, so each segment's visibility changes on its own. Every truck reports what it measures.</p>
+  </div>
+  <div class="group">
+    <span class="label">Inject a pit event</span>
+    <div class="btnrow">
+      <button id="evRock">Rockfall on main ramp</button>
+      <button id="evWorker">Tagged worker steps onto road</button>
+      <button id="evUntagged">Untagged person inside the hairpin</button>
+      <button id="evNewRoad">New road cut on Bench 3</button>
+    </div>
+    <p class="hint">Watch the HUD and event log: the first truck whose radar sees a hazard shares it with every truck on the mesh, even ones that cannot see it yet.</p>
+  </div>
+  <div class="group">
+    <span class="label">FogRail features · switch off to compare</span>
+    <div class="btnrow">
+      <button id="optCoop" class="on" aria-pressed="true">Fleet radar mesh</button>
+      <button id="optTrain" class="on" aria-pressed="true">Fog Train</button>
+    </div>
+    <p class="hint">Fleet radar mesh: every truck's radar becomes one shared picture of the road. Fog Train: trucks in V2V contact couple like train cars and share one token through the hairpin.</p>
+  </div>
+  <div class="group">
+    <span class="label">Break something on <span id="failTruck" class="mono">T1</span></span>
+    <div class="btnrow">
+      <button class="danger" data-fail="gnss">GNSS lost</button>
+      <button class="danger" data-fail="v2v">V2V radio dead</button>
+      <button class="danger" data-fail="radar">Radar fault</button>
+      <button class="danger" data-fail="comms">Total comms loss</button>
+      <button id="restore">Restore all</button>
+    </div>
+    <p class="hint">Every failure has a defined safe response. See the fail-safe ladder below.</p>
+  </div>
+</section>
+
+<section class="kpis">
+  <div class="kpi hero">
+    <span class="label">Ore hauled this shift</span>
+    <div class="bars">
+      <div class="bar"><span>FogRail</span><div class="track"><div class="fill" id="bFR" style="background:var(--hud);width:0"></div></div><span class="num" id="nFR">0 t</span></div>
+      <div class="bar"><span>Vision-only</span><div class="track"><div class="fill" id="bVO" style="background:var(--muted);width:0"></div></div><span class="num" id="nVO">0 t</span></div>
+      <div class="bar"><span>Clear-day ref.</span><div class="track"><div class="fill" id="bCD" style="background:var(--ore);width:0"></div></div><span class="num" id="nCD">0 t</span></div>
+    </div>
+  </div>
+  <div class="kpi"><span class="label">Output vs clear day</span><div class="v" id="kRetained">–</div><div class="s" id="kRetainedS">Vision-only: –</div></div>
+  <div class="kpi"><span class="label">Avg cycle time</span><div class="v" id="kCycle">–</div><div class="s" id="kCycleS">Vision-only: –</div></div>
+  <div class="kpi"><span class="label">Road verified clear ahead</span><div class="v" id="kSee">–</div><div class="s" id="kSeeS">Own radar alone: –</div></div>
+  <div class="kpi"><span class="label">Fog Train</span><div class="v" id="kTrain">0</div><div class="s" id="kTrainS">Extra trucks through on a shared token</div></div>
+  <div class="kpi"><span class="label">Near-misses</span><div class="v" id="kNear">0</div><div class="s" id="kNearS">Hazards shared: 0</div><div class="s" id="kRowS">Right-of-way calls: 0</div></div>
+</section>
+
+<section class="lower">
+  <div class="panel">
+    <div class="panel-head"><h2>Fleet</h2><span class="label">6 dumpers · mixed fleet retrofit</span></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Truck</th><th>State</th><th>Segment</th><th style="text-align:right">km/h</th><th style="text-align:right">Advised</th><th>Mode</th><th>Health</th></tr></thead>
+      <tbody id="fleet"></tbody>
+    </table></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Event log</h2><span class="label">Newest first</span></div>
+    <ul class="log" id="log"></ul>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Supervisor</h2><span class="label">Control room actions</span></div>
+    <div class="actions" id="actions">
+      <button id="stopAll" class="danger">Stop all trucks</button>
+      <button id="approveMap" class="cta" hidden>Approve map update for Bench 3</button>
+      <button id="clearRock" hidden>Mark rockfall cleared (dozer done)</button>
+    </div>
+    <span class="label">Fail-safe ladder</span>
+    <div class="tablewrap"><table class="ladder">
+      <thead><tr><th>Failure</th><th>Automatic response</th></tr></thead>
+      <tbody>
+        <tr data-l="gnss"><td>GNSS lost</td><td>IMU + wheel odometry dead-reckoning, side radar holds berm, cap 15 km/h</td></tr>
+        <tr data-l="v2v"><td>V2V lost</td><td>Truck goes "dark": its block and the one behind stay red, neighbours slow</td></tr>
+        <tr data-l="radar"><td>Radar fault</td><td>Borrow the fleet radar picture, cap 20 km/h; 12 km/h where no fresh scan exists</td></tr>
+        <tr data-l="comms"><td>Total comms loss</td><td>Controlled stop, hazard lights, wait for supervisor</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section class="lower2">
+  <div class="panel">
+    <div class="panel-head"><h2>Driver sees 5 m. Truck needs 23 m.</h2></div>
+    <div class="chartbox"><canvas id="stopChart" aria-label="Stopping distance versus speed with sight distance line"></canvas></div>
+    <p class="hint">Stopping distance = v·t<sub>r</sub> + v² / 2g(μcosθ ± sinθ), wet haul road μ ≈ 0.35, reaction 1.5 s. Vision caps speed at sight distance; FogRail caps it at the confirmed-clear distance.</p>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Fog nowcast · next 60 min</h2><span class="label">Fleet weather mesh · simulated</span></div>
+    <div class="chartbox"><canvas id="fcChart" aria-label="Visibility forecast for the next four hours"></canvas></div>
+    <p class="hint" id="fcText">Built from visibility readings sent by every truck.</p>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>The cockpit idea</h2><span class="label">Pilots land blind. So can dumpers.</span></div>
+    <ul class="layers">
+      <li><b>Synthetic view</b><span>The HUD draws the road as it looks on a clear day, from a 3D twin rebuilt by fleet dashcams in every clear hour, placed by RTK GNSS + IMU. Live objects come only from radar and V2V.</span></li>
+      <li><b>Fleet radar</b><span>Every truck's 4D radar feeds one shared picture of the road. A truck coming down the hairpin clears it for the truck going up.</span></li>
+      <li><b>Fog Train</b><span>Trucks in V2V contact couple like train cars: brake intent arrives in 0.3 s instead of a 1.5 s human reaction, so gaps shrink safely and a whole train passes the hairpin on one token.</span></li>
+      <li><b>Weather mesh</b><span>Every truck measures visibility. The control room gets a live fog map and a per-segment nowcast.</span></li>
+      <li><b>Safety core</b><span>Virtual blocks, safe-speed governor and the fail-safe ladder stay deterministic and fully offline. No roadside poles.</span></li>
+    </ul>
+  </div>
+</section>
+
+<footer>Simulated prototype for demo. The synthetic view, radar cones and nowcast are simulated from the sim's own map and fog model. Geometry, fleet size, grades and speed limits are illustrative, not NMDC survey data. 100 t payload per dumper. Vision-only baseline uses the same fleet and fog, with speed limited by sight distance.</footer>
+</div>
+
+<script>
+(() => {
+"use strict";
+// ---------- physics ----------
+const G = 9.81, TR = 1.5, MU = 0.35, KMH = 3.6;
+const PAYLOAD = 100, BLOCK = 100, RADAR = 150, THERMAL = 60, V2V_RANGE = 600;
+// fleet radar mesh: each truck's radar confirms road clear up to SCAN m inside its field of view; scans stay "fresh" for FRESH s
+const SCAN = 120, FOV = 0.38, PERSON = 80, FRESH = 15, SAMPLE = 10;
+// Fog Train: brake intent over V2V + retrofit brake actuator replaces the 1.5 s human reaction
+const LAT = 0.3, TRAIN_GAP = 12;
+const opts = { coop:true, train:true, synth:true };
+function kfac(grade){ const th = Math.atan(grade); return Math.max(MU*Math.cos(th) + Math.sin(th), 0.05); }
+function stopDist(v, grade, tr = TR){ return v*tr + v*v/(2*G*kfac(grade)); }
+function vFromDist(D, grade, tr = TR){ if (D <= 0) return 0; const a = 1/(2*G*kfac(grade)); return (-tr + Math.sqrt(tr*tr + 4*a*D))/(2*a); }
+const clamp = (x,a,b) => Math.max(a, Math.min(b, x));
+
+// ---------- seeded random ----------
+let seed = 7; const rnd = () => (seed = (seed*16807) % 2147483647) / 2147483647;
+
+// ---------- road network (world metres, y down) ----------
+const EDGES = {
+  E1:{name:"Bench 3 road", pts:[[330,760],[500,800],[720,790],[900,730]], grade:0, lim:{L:30,E:38}, lanes:2, fog:1.4},
+  E2:{name:"Hairpin H1", pts:[[900,730],[972,702],[1008,642],[986,582],[900,552]], grade:0.0625, lim:{L:14,E:16}, lanes:1, exclusive:true, fog:1.0},
+  E3:{name:"Main ramp", pts:[[900,552],[770,526],[642,470],[548,400],[540,330],[640,262]], grade:0.0625, lim:{L:20,E:30}, lanes:2, fog:1.0},
+  E5:{name:"Bench 5 road", pts:[[220,300],[330,252],[470,232],[640,262]], grade:0, lim:{L:30,E:38}, lanes:2, fog:0.9},
+  EJ:{name:"Junction J2", pts:[[640,262],[700,240]], grade:0, lim:{L:18,E:18}, lanes:2, exclusive:true, fog:0.8},
+  E4:{name:"Crusher road", pts:[[700,240],[860,202],[1050,174],[1250,172],[1390,212]], grade:0.01, lim:{L:32,E:40}, lanes:2, fog:0.8},
+};
+const ROUTES = { A:["E1","E2","E3","EJ","E4"], B:["E5","EJ","E4"] };
+const PLACES = { A:"Shovel A", B:"Shovel B" };
+
+function catmull(pts){
+  const out = [];
+  for (let i=0;i<pts.length-1;i++){
+    const p0 = pts[Math.max(i-1,0)], p1 = pts[i], p2 = pts[i+1], p3 = pts[Math.min(i+2,pts.length-1)];
+    for (let k=0;k<16;k++){
+      const t=k/16, t2=t*t, t3=t2*t;
+      out.push([0,1].map(j => 0.5*((2*p1[j]) + (-p0[j]+p2[j])*t + (2*p0[j]-5*p1[j]+4*p2[j]-p3[j])*t2 + (-p0[j]+3*p1[j]-3*p2[j]+p3[j])*t3)));
+    }
+  }
+  out.push(pts[pts.length-1]); return out;
+}
+for (const [id,e] of Object.entries(EDGES)){
+  e.id = id; e.sp = catmull(e.pts); e.cum = [0];
+  for (let i=1;i<e.sp.length;i++) e.cum.push(e.cum[i-1] + Math.hypot(e.sp[i][0]-e.sp[i-1][0], e.sp[i][1]-e.sp[i-1][1]));
+  e.len = e.cum[e.cum.length-1];
+  e.nb = Math.max(1, Math.round(e.len/BLOCK)); e.bl = e.len/e.nb;
+  if (e.exclusive){ e.nb = 1; e.bl = e.len; }
+  e.half = e.lanes === 2 ? 10 : 5.5;
+  e.nsamp = Math.floor(e.len/SAMPLE) + 1;
+}
+// fog bank drifts across the pit: each segment's visibility swings around the pit-wide value
+const PHASE = { E1:0, E2:0.9, E3:1.7, E5:2.6, EJ:3.4, E4:4.2 };
+function edgePoint(e, s){
+  s = clamp(s, 0, e.len);
+  let lo = 1, hi = e.cum.length-1;
+  while (lo < hi){ const m = (lo+hi)>>1; if (e.cum[m] < s) lo = m+1; else hi = m; }
+  const i = lo, a = e.sp[i-1], b = e.sp[i], seg = (e.cum[i]-e.cum[i-1]) || 1, u = (s-e.cum[i-1])/seg;
+  return { x:a[0]+(b[0]-a[0])*u, y:a[1]+(b[1]-a[1])*u, hx:(b[0]-a[0])/seg, hy:(b[1]-a[1])/seg };
+}
+const visGlobal = { v:5 };
+const weather = { t:0, drift:true };
+// the swing fades out as the pit clears, so a clear day stays clear everywhere
+const driftFactor = (edgeId, t, base) => weather.drift ? Math.pow(2.2, clamp(1 - Math.log(base/3)/Math.log(100), 0, 1) * Math.sin(t/420 + PHASE[edgeId])) : 1;
+const localVis = (edgeId, t = weather.t, base = visGlobal.v) => clamp(base * EDGES[edgeId].fog * driftFactor(edgeId, t, base), 3, 400);
+function fogMode(vis){ return vis >= 150 ? "clear" : vis >= 50 ? "caution" : vis >= 15 ? "fog" : "dense"; }
+const MODE_LABEL = { clear:"Clear", caution:"Caution", fog:"Fog", dense:"Dense fog" };
+const MODE_CAP = { clear:99, caution:40, fog:32, dense:28 };
+
+// ---------- simulation ----------
+function makeTrip(route, loaded){
+  const r = ROUTES[route];
+  return loaded ? r.map(e => ({edge:e, dir:1})) : r.slice().reverse().map(e => ({edge:e, dir:-1}));
+}
+class Sim {
+  constructor(kind){
+    this.kind = kind;   // "fograil" | "vision" | "clear"
+    this.t = 0; this.tonnes = 0; this.cycles = []; this.rowCalls = 0; this.nearMiss = 0; this.hazShared = 0;
+    this.zones = {}; for (const e of Object.values(EDGES)) if (e.exclusive) this.zones[e.id] = { holders:[], entered:new Set() };
+    this.scan = {}; for (const e of Object.values(EDGES)) this.scan[e.id] = new Float64Array(e.nsamp).fill(-1e9);
+    this.wx = {};   // fleet weather mesh: last visibility reading per segment
+    this.trainPasses = 0;
+    this.hazards = []; this.workers = []; this.unmapped = null; this.stopAll = false;
+    this.events = [];
+    const spec = [
+      ["T1","A",true,0,120], ["T2","A",true,2,240], ["T3","A",false,0,420], ["T4","A",false,2,520],
+      ["T5","B",true,0,90], ["T6","B",false,0,160],
+    ];
+    this.trucks = spec.map(([id,route,loaded,leg,s]) => {
+      const legs = makeTrip(route, loaded);
+      const e = EDGES[legs[leg].edge];
+      return { id, route, loaded, legs, legIdx:leg, s: legs[leg].dir > 0 ? s : e.len - s, v:5, state:"drive", dwell:0,
+        fails:{gnss:false,v2v:false,radar:false,comms:false}, posErr:0.02, odo:0, commsStop:null,
+        lastLoad:null, advised:0, clear:999, why:"road limit", alerts:[], row:null, nmCool:0, knownHaz:new Set(), pathfinder:false,
+        los:0, scanClear:0, fleetClear:0, trainWith:null };
+    });
+  }
+  log(msg, level="info"){ if (this.kind === "fograil") this.events.unshift({ t:this.t, msg, level }); if (this.events.length > 80) this.events.pop(); }
+  cur(t){ return t.legs[t.legIdx]; }
+  pose(t){
+    const L = this.cur(t), e = EDGES[L.edge], p = edgePoint(e, t.s);
+    const off = e.lanes === 2 ? -5*L.dir : 0;   // keep-left lanes
+    return { x:p.x - p.hy*off, y:p.y + p.hx*off, hx:p.hx*L.dir, hy:p.hy*L.dir, edge:e.id };
+  }
+  upcoming(t, range){
+    const out = []; let d = 0;
+    for (let i=t.legIdx; i<t.legs.length && d < range; i++){
+      const L = t.legs[i], e = EDGES[L.edge];
+      const sStart = i === t.legIdx ? t.s : (L.dir > 0 ? 0 : e.len);
+      const rem = L.dir > 0 ? e.len - sStart : sStart;
+      out.push({ edge:L.edge, dir:L.dir, d0:d, sStart, rem, idx:i }); d += rem;
+    }
+    return out;
+  }
+  static distOn(leg, x){ const rel = leg.dir > 0 ? x - leg.sStart : leg.sStart - x; return (rel < 0 || rel > leg.rem) ? null : leg.d0 + rel; }
+  connected(t){ return !t.fails.v2v && !t.fails.comms; }
+  limitFor(t, edgeId){ return this.limitWhy(t, edgeId).v; }
+  limitWhy(t, edgeId){
+    const e = EDGES[edgeId]; let lim = t.loaded ? e.lim.L : e.lim.E, why = `${e.name} limit`;
+    if (this.kind !== "vision"){
+      let m = fogMode(this.kind === "clear" ? 300 : localVis(edgeId));
+      // a long stretch verified clear by the fleet lifts the blanket fog cap; the governor still holds stopping distance inside it
+      if (this.kind === "fograil" && opts.coop && this.connected(t) && t.fleetClear >= 150 && (m === "dense" || m === "fog")) m = "caution";
+      if (MODE_CAP[m] < lim){ lim = MODE_CAP[m]; why = `${MODE_LABEL[m]} mode cap`; }
+    }
+    if (this.unmapped && this.unmapped.edge === edgeId){ const u = t.pathfinder ? 10 : 15; if (u < lim){ lim = u; why = t.pathfinder ? "pathfinder · berm radar only" : "convoy on unverified map"; } }
+    return { v: lim / KMH, why };
+  }
+  // own radar line of sight along the road: ends at SCAN m or where a bend leaves the field of view
+  scanPass(){
+    for (const t of this.trucks){
+      t.los = 0;
+      if (t.state !== "drive" || t.fails.radar) continue;
+      const L = this.cur(t), c0 = edgePoint(EDGES[L.edge], t.s), hx = c0.hx*L.dir, hy = c0.hy*L.dir;
+      const share = this.connected(t);
+      let los = 0, blocked = false;
+      for (const leg of this.upcoming(t, SCAN)){
+        const e = EDGES[leg.edge], arr = this.scan[leg.edge];
+        for (let r=0; r<=leg.rem; r+=5){
+          const d = leg.d0 + r; if (d > SCAN){ blocked = true; break; }
+          const s = leg.sStart + leg.dir*r, p = edgePoint(e, s);
+          const dx = p.x - c0.x, dy = p.y - c0.y, f = dx*hx + dy*hy, l = -dx*hy + dy*hx;
+          if (d > 10 && (f <= 0 || Math.abs(Math.atan2(l, f)) > FOV)){ blocked = true; break; }
+          los = d; if (share) arr[Math.round(s/SAMPLE)] = this.t;
+        }
+        if (blocked) break;
+      }
+      t.los = blocked ? los : SCAN;   // route ends inside radar range: nothing further to check
+      // every truck is also a weather station
+      if (share) this.wx[L.edge] = { vis: localVis(L.edge), t: this.t, by: t.id };
+    }
+  }
+  // contiguous road ahead that is confirmed clear: own radar now, plus fresh scans from any truck on the mesh
+  clearAhead(t, ahead, fleet){
+    let sc = 0;
+    for (const leg of ahead){
+      const arr = this.scan[leg.edge];
+      for (let r=0; r<=leg.rem; r+=SAMPLE){
+        const d = leg.d0 + r;
+        if (d <= t.los){ sc = d; continue; }
+        if (fleet && this.t - arr[Math.round((leg.sStart + leg.dir*r)/SAMPLE)] < FRESH) sc = d; else return Math.max(sc, t.los);
+      }
+    }
+    return Math.max(420, t.los);
+  }
+  step(dt){
+    this.t += dt;
+    const fr = this.kind !== "vision";
+    if (this.kind === "fograil") this.scanPass();
+    // reset zone requests
+    const requests = {}; for (const z in this.zones) requests[z] = [];
+    for (const t of this.trucks){
+      t.alerts = []; t.row = null; t.trainWith = null;
+      if (t.state !== "drive"){
+        t.dwell -= dt; t.v = 0; t.advised = 0;
+        if (t.dwell <= 0){
+          if (t.state === "dump"){ this.tonnes += PAYLOAD; t.loaded = false; this.log(`${t.id} dumped ${PAYLOAD} t at Crusher`, "go"); }
+          else { if (t.lastLoad !== null) this.cycles.push(this.t - t.lastLoad); t.lastLoad = this.t; t.loaded = true; }
+          t.legs = makeTrip(t.route, t.loaded); t.legIdx = 0; t.state = "drive";
+        }
+        continue;
+      }
+      const L = this.cur(t), e = EDGES[L.edge], grade = e.grade * L.dir;
+      const ahead = this.upcoming(t, 420);
+      let clear = Infinity, why = "road limit";
+      const obs = (d, w) => { if (d < clear){ clear = d; why = w; } };
+      // end of trip
+      const last = ahead[ahead.length-1];
+      if (last.idx === t.legs.length-1) obs(last.d0 + last.rem + 2.5, t.loaded ? "arriving at Crusher" : `arriving at ${PLACES[t.route]}`);
+      // other trucks
+      for (const o of this.trucks){
+        if (o === t) continue;
+        const OL = this.cur(o);
+        for (const leg of ahead){
+          if (leg.edge !== OL.edge) continue;
+          const d = Sim.distOn(leg, o.s);
+          if (d === null || d <= 0.01) continue;
+          if (leg.dir === OL.dir || EDGES[leg.edge].lanes === 1){
+            const coupled = this.kind === "fograil" && opts.train && leg.dir === OL.dir && this.connected(o) && this.connected(t)
+              && !t.fails.gnss && !o.fails.gnss && !t.fails.radar;
+            if (coupled){
+              // Fog Train (moving block): the leader cannot stop dead, and its brake intent arrives over V2V in LAT s
+              const room = d - TRAIN_GAP + o.v*o.v/(2*G*kfac(EDGES[OL.edge].grade*OL.dir));
+              obs(stopDist(vFromDist(room, grade, LAT), grade), `Fog Train · coupled to ${o.id}`);
+              if (d < 150) t.trainWith = o.id;
+            } else if (fr){
+              const dark = !this.connected(o) || !this.connected(t);
+              const eo = EDGES[OL.edge];
+              // block boundary the follower meets first
+              const bIdx = Math.floor(clamp(o.s,0,eo.len-0.01)/eo.bl);
+              const bEdge = leg.dir > 0 ? bIdx*eo.bl : Math.min(eo.len, (bIdx+1)*eo.bl);
+              let dB = Sim.distOn(leg, bEdge); if (dB === null) dB = leg.d0;
+              const target = Math.min((dB > 15 && !eo.exclusive) ? dB - 3 : d - 18, d - 18) - (dark ? BLOCK : 0);
+              obs(target, dark ? `dark truck ${o.id} (+1 block)` : `block held by ${o.id}`);
+              if (dark && d < 300) t.alerts.push({k:"dark"+o.id, lvl:"warn", txt:`${o.id} DARK · ${Math.round(d)} m`});
+            } else {
+              if (d < localVis(leg.edge) + 10) obs(d - 15, `${o.id} seen`);
+            }
+          } else if (fr && this.connected(t) && this.connected(o) && d < 320){
+            t.alerts.push({k:"onc"+o.id, lvl:"info", txt:`Oncoming ${o.id} · ${Math.round(d)} m`});
+          }
+          break;
+        }
+      }
+      // exclusive zones (single-lane hairpin, junction)
+      for (const leg of ahead){
+        const ez = EDGES[leg.edge]; if (!ez.exclusive || leg.idx === t.legIdx) continue;
+        const z = this.zones[leg.edge];
+        const mine = z.holders.includes(t);
+        if (leg.d0 < 260 && !mine) requests[leg.edge].push({ t, d:leg.d0, dir:leg.dir });
+        if (!mine){ obs(leg.d0 - 22, `waiting · ${ez.name}`); /* hold line leaves room for a merging token holder */ if (leg.d0 < 260) t.row = { zone:ez.name, go:false, d:leg.d0 }; }
+        else if (leg.d0 < 260) t.row = { zone:ez.name, go:true, d:leg.d0 };
+        break;
+      }
+      // fograil-only layers
+      const base = this.limitWhy(t, L.edge);
+      let cap = base.v, capWhy = base.why;
+      const capTo = (v, w) => { if (v < cap){ cap = v; capWhy = w; } };
+      if (this.kind === "fograil"){
+        const meshOn = opts.coop && this.connected(t);
+        // hazards (rockfall): whichever truck's radar sees it first shares it on the mesh
+        for (const h of this.hazards){
+          for (const leg of ahead){
+            if (leg.edge !== h.edge) continue;
+            const d = Sim.distOn(leg, h.s); if (d === null) continue;
+            if (d <= t.los && !t.knownHaz.has(h.id)){
+              t.knownHaz.add(h.id);
+              if (!h.known){ h.known = true; h.by = t.id; h.shared = opts.coop && this.connected(t); this.log(`${t.id} radar detected rockfall on ${EDGES[h.edge].name} at ${Math.round(d)} m${h.shared ? ", shared on the fleet radar mesh" : " (mesh off: own use only)"}`, "warn"); }
+            }
+            if (h.shared && meshOn && !t.knownHaz.has(h.id)){ t.knownHaz.add(h.id); this.hazShared++; this.log(`${t.id} got rockfall pin from ${h.by}, ${Math.round(d)} m ahead`, "info"); }
+            if (t.knownHaz.has(h.id)){
+              t.alerts.push({k:"haz"+h.id, lvl:"warn", txt:`ROCKFALL · ${Math.round(d)} m${h.by !== t.id ? " · via "+h.by : ""} · pass at 8 km/h`});
+              const vAllow = Math.sqrt((8/KMH)**2 + 2*0.6*Math.max(0,d-30));
+              capTo(vAllow, "rockfall ahead");
+            }
+            break;
+          }
+        }
+        // workers
+        for (const w of this.workers){
+          for (const leg of ahead){
+            if (leg.edge !== w.edge) continue;
+            const d = Sim.distOn(leg, w.s); if (d === null) continue;
+            const ownSee = !w.tagged && d <= Math.min(t.los, PERSON);
+            if (ownSee && !w.by){ w.by = t.id; w.shared = opts.coop && this.connected(t); }
+            const viaMesh = !w.tagged && !ownSee && w.shared && meshOn && w.by !== t.id && d < 400;
+            const known = w.tagged ? d < 200 : (ownSee || viaMesh);
+            if (known){
+              const lvl = d < 20 ? "stop" : d < 50 ? "warn" : "info";
+              t.alerts.push({k:"w"+w.id, lvl, txt:`${w.tagged ? "PERSON" : "UNTAGGED PERSON"} ${w.onRoad ? "ON ROAD" : "near road"} · ${Math.round(d)} m${viaMesh ? " · via "+w.by : ""}`});
+              if (w.onRoad) obs(d - 15, w.tagged ? "person (UWB tag)" : viaMesh ? `person seen by ${w.by}` : "person (thermal + radar)");
+              if (!w.seen.has(t.id)){ w.seen.add(t.id); if (viaMesh) this.hazShared++; this.log(`${t.id} ${w.tagged ? "received UWB tag of" : viaMesh ? `got mesh alert from ${w.by}:` : "thermal + radar confirmed"} ${w.label} ${Math.round(d)} m ahead${viaMesh ? ", out of its own sight" : ""}`, w.onRoad ? "stop" : "info"); }
+            }
+            break;
+          }
+        }
+        // unmapped road: pathfinder
+        if (this.unmapped && this.unmapped.edge === L.edge && !this.unmapped.tracedBy && !this.unmapped.pathfinder){
+          this.unmapped.pathfinder = t.id; t.pathfinder = true; this.log(`${t.id} entered unmapped ${e.name} as pathfinder: berm radar only, 10 km/h`, "warn");
+        }
+        if (this.unmapped && t.pathfinder && this.unmapped.edge === L.edge){ const p = this.pose(t); this.unmapped.trace.push([p.x,p.y]); }
+        // failures
+        if (t.fails.gnss){ capTo(15/KMH, "GNSS lost · dead-reckoning"); t.posErr = Math.min(2.5, t.posErr + 0.01*dt); } else t.posErr = 0.02;
+        if (t.fails.v2v) capTo(15/KMH, "own V2V offline");
+        // verified-clear horizon for things that carry no tag (boulders, people, stalled machines)
+        t.fleetClear = this.clearAhead(t, ahead, this.connected(t));
+        t.scanClear = opts.coop ? t.fleetClear : t.los;
+        const sightOk = Math.max(t.scanClear, localVis(L.edge));
+        if (t.fails.radar){ capTo(20/KMH, "radar fault cap"); if (sightOk < 30) capTo(12/KMH, "radar fault · no fresh fleet scan"); }
+        else obs(sightOk + 4, t.scanClear > t.los + 5 ? "fleet radar coverage ends" : "own radar sight ends");
+        if (t.fails.comms){ if (t.commsStop === null) t.commsStop = t.odo + Math.max(20, stopDist(t.v, grade) + 8); obs(t.commsStop - t.odo, "comms loss · controlled stop"); }
+        else t.commsStop = null;
+        if (this.stopAll) obs(Math.max(0, stopDist(t.v, grade) * 0.6), "supervisor stop-all");
+        // neighbours of a dark truck slow down
+        for (const o of this.trucks){ if (o !== t && !this.connected(o)){ const p1 = this.pose(t), p2 = this.pose(o); if (Math.hypot(p1.x-p2.x,p1.y-p2.y) < 300) capTo(20/KMH, `dark truck ${o.id} nearby`); } }
+      }
+      // slow down before slower segments ahead
+      for (const leg of ahead){ if (leg.idx === t.legIdx) continue; const vl = this.limitFor(t, leg.edge); capTo(Math.sqrt(vl*vl + 2*0.7*leg.d0), `slowing for ${EDGES[leg.edge].name}`); }
+      // safe-speed governor
+      const sight = localVis(L.edge);
+      if (!fr && sight < clear){ clear = sight; why = `sight distance ${Math.round(sight)} m`; }
+      const vSafe = vFromDist(clear - (fr ? 2 : 0), grade);
+      const vT = Math.min(cap, vSafe);
+      t.advised = vT; t.clear = Math.max(0, clear); t.why = vSafe < cap ? why : capWhy;
+      if (t.v < vT) t.v = Math.min(vT, t.v + 0.45*dt); else t.v = Math.max(vT, t.v - 3.0*dt);
+      if (clear < 0.5) t.v = 0;
+      // near-miss: cannot stop within what is confirmed clear
+      if (this.kind === "fograil"){ t.nmCool -= dt; if (t.v > 1.5 && stopDist(t.v, grade) > clear + 3 && t.nmCool <= 0){ this.nearMiss++; t.nmCool = 20; this.log(`${t.id} near-miss: stopping distance exceeded clear distance`, "stop"); } }
+      // move
+      let ds = t.v * dt; t.odo += ds;
+      while (ds > 0){
+        const C = this.cur(t), ce = EDGES[C.edge];
+        const rem = C.dir > 0 ? ce.len - t.s : t.s;
+        if (ds < rem){ t.s += C.dir*ds; ds = 0; break; }
+        ds -= rem; t.s = C.dir > 0 ? ce.len : 0;
+        if (t.legIdx < t.legs.length-1){
+          if (this.unmapped && t.pathfinder && C.edge === this.unmapped.edge){ this.unmapped.tracedBy = t.id; t.pathfinder = false; this.log(`${t.id} finished tracing ${ce.name}. Map update waiting for supervisor approval`, "warn"); }
+          t.legIdx++; const N = this.cur(t); t.s = N.dir > 0 ? 0 : EDGES[N.edge].len;
+        } else {
+          t.state = t.loaded ? "dump" : "load"; t.dwell = t.loaded ? 45 : 90; t.v = 0; ds = 0;
+        }
+      }
+    }
+    // grant zone tokens: loaded (uphill) first, then nearest
+    for (const zid in this.zones){
+      const z = this.zones[zid];
+      z.holders = z.holders.filter(h => {
+        if (this.cur(h).edge === zid){ z.entered.add(h); return true; }
+        if (z.entered.has(h) || h.state !== "drive"){ z.entered.delete(h); return false; }
+        return true;
+      });
+      if (!z.holders.length && requests[zid].length){
+        const rq = requests[zid].sort((a,b) => (b.t.loaded - a.t.loaded) || (a.d - b.d)), lead = rq[0];
+        z.holders = [lead.t];
+        // a coupled Fog Train goes through on one token instead of one truck at a time
+        if (this.kind === "fograil" && opts.train && this.connected(lead.t)){
+          const cars = rq.filter(r => r !== lead && r.dir === lead.dir && this.connected(r.t) && !r.t.fails.gnss && !r.t.fails.radar && r.d - lead.d < 90 && r.d > lead.d).slice(0, 2);
+          if (cars.length){ z.holders.push(...cars.map(r => r.t)); this.trainPasses += cars.length; this.log(`Fog Train ${[lead, ...cars].map(r => r.t.id).join("+")} cleared through ${EDGES[zid].name} on one token`, "go"); }
+        }
+        const waiting = rq.filter(r => !z.holders.includes(r.t));
+        if (waiting.length && waiting.some(r => r.dir !== lead.dir || r.t.route !== lead.t.route)){
+          this.rowCalls++;
+          this.log(`Right-of-way at ${EDGES[zid].name}: ${z.holders.map(h => h.id).join("+")} (${lead.t.loaded ? "loaded, uphill" : "nearest"}) PROCEED · ${waiting.map(r => r.t.id).join(", ")} YIELD`, "go");
+        }
+      }
+    }
+    // worker timers
+    for (const w of this.workers){ if (w.onRoad && this.t > w.until){ w.onRoad = false; this.log(`${w.label} stepped off the road`, "info"); w.until = this.t + 60; } else if (!w.onRoad && w.temp && this.t > w.until) w.gone = true; }
+    this.workers = this.workers.filter(w => !w.gone);
+  }
+  v2vLinks(){
+    const links = [], ts = this.trucks.filter(t => this.connected(t));
+    for (let i=0;i<ts.length;i++) for (let j=i+1;j<ts.length;j++){
+      const a = this.pose(ts[i]), b = this.pose(ts[j]);
+      if (Math.hypot(a.x-b.x, a.y-b.y) < V2V_RANGE) links.push([ts[i], ts[j]]);
+    }
+    return links;
+  }
+}
+
+// ---------- app state ----------
+let sims, main, sel, running = true, speed = 10, voiceOn = false, showFog = true, lastSpoken = new Set(), workerSeq = 0, hazSeq = 0;
+function resetAll(){
+  weather.t = 0;
+  sims = [new Sim("fograil"), new Sim("vision"), new Sim("clear")]; main = sims[0];
+  sel = main.trucks[0]; main.log("Shift started. FogRail active on all 6 dumpers", "info");
+  renderPicker(); syncFailButtons();
+}
+
+// ---------- canvases ----------
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+function fit(cv){ const r = cv.getBoundingClientRect(); const w = Math.max(1, Math.round(r.width*DPR)), h = Math.max(1, Math.round(r.height*DPR)); if (cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; } return [cv.width, cv.height]; }
+const mapCv = document.getElementById("map"), hudCv = document.getElementById("hud"), stopCv = document.getElementById("stopChart"), fcCv = document.getElementById("fcChart");
+const WB = { x0:150, y0:115, w:1300, h:740 };
+
+// terrain, generated once
+const benches = []; (function(){
+  const cx = 640, cy = 560;
+  for (let r=600, k=0; r>=110; r-=62, k++){
+    const pts = [];
+    for (let i=0;i<64;i++){ const a = i/64*Math.PI*2; const n = 1 + 0.07*Math.sin(a*3+k) + 0.04*(rnd()-0.5); pts.push([cx + Math.cos(a)*r*1.05*n, cy + Math.sin(a)*r*0.66*n]); }
+    benches.push(pts);
+  }
+})();
+const fogBlobs = []; for (let i=0;i<70;i++){ const y = 120 + Math.pow(rnd(),1.6)*720; fogBlobs.push({ x:150 + rnd()*1400, y, r:60 + rnd()*120, a: 0.35 + 0.65*(1 - (y-120)/720) }); }
+
+function drawMap(){
+  const [W,H] = fit(mapCv), c = mapCv.getContext("2d");
+  const sc = Math.min(W/WB.w, H/WB.h), ox = (W - WB.w*sc)/2 - WB.x0*sc, oy = (H - WB.h*sc)/2 - WB.y0*sc;
+  const X = x => x*sc + ox, Y = y => y*sc + oy;
+  c.fillStyle = "#2a1c15"; c.fillRect(0,0,W,H);
+  benches.forEach((b,k) => {
+    c.beginPath(); b.forEach((p,i) => i ? c.lineTo(X(p[0]),Y(p[1])) : c.moveTo(X(p[0]),Y(p[1]))); c.closePath();
+    const l = 22 - k*1.3; c.fillStyle = `hsl(18 38% ${l}%)`; c.fill();
+    c.strokeStyle = `hsla(22 45% ${l+12}% / .55)`; c.lineWidth = 1.2*DPR; c.stroke();
+  });
+  // roads: berm, surface, blocks
+  for (const e of Object.values(EDGES)){
+    const path = () => { c.beginPath(); e.sp.forEach((p,i) => i ? c.lineTo(X(p[0]),Y(p[1])) : c.moveTo(X(p[0]),Y(p[1]))); };
+    path(); c.lineCap = "round"; c.lineJoin = "round";
+    c.strokeStyle = "#8a6a55"; c.lineWidth = (e.half*2+6)*sc; c.stroke();
+    path(); c.strokeStyle = "#3b322e"; c.lineWidth = e.half*2*sc; c.stroke();
+    if (main.unmapped && main.unmapped.edge === e.id){
+      path(); c.setLineDash([8*DPR,6*DPR]); c.strokeStyle = "#e8b23a"; c.lineWidth = 2*DPR; c.stroke(); c.setLineDash([]);
+    }
+  }
+  // block occupancy per direction
+  const occ = {};
+  for (const t of main.trucks){
+    const L = main.cur(t), e = EDGES[L.edge], b = Math.floor(clamp(t.s,0,e.len-0.01)/e.bl);
+    const key = (bb) => e.exclusive ? `${e.id}:x:0` : `${e.id}:${L.dir}:${bb}`;
+    occ[key(b)] = true;
+    if (!main.connected(t) && !e.exclusive){ const bb = b - L.dir; if (bb >= 0 && bb < e.nb) occ[key(bb)] = true; }
+  }
+  for (const e of Object.values(EDGES)){
+    const dirs = e.exclusive ? [0] : [1,-1];
+    for (const d of dirs){
+      for (let b=0;b<e.nb;b++){
+        const red = e.exclusive ? (occ[`${e.id}:x:0`] || main.zones[e.id].holders.length > 0) : occ[`${e.id}:${d}:${b}`];
+        const held = e.exclusive && !occ[`${e.id}:x:0`] && main.zones[e.id].holders.length > 0;
+        c.beginPath();
+        for (let s=b*e.bl+3; s<=(b+1)*e.bl-3; s+=4){
+          const p = edgePoint(e, s), off = e.exclusive ? 0 : -5*d;
+          const x = X(p.x - p.hy*off), y = Y(p.y + p.hx*off);
+          s === b*e.bl+3 ? c.moveTo(x,y) : c.lineTo(x,y);
+        }
+        c.strokeStyle = held ? "#e8b23a" : red ? "#e5534b" : "rgba(76,195,138,.75)"; c.lineWidth = 2.2*DPR; c.stroke();
+      }
+    }
+  }
+  // pathfinder trace
+  if (main.unmapped && main.unmapped.trace.length > 1){
+    c.beginPath(); main.unmapped.trace.forEach((p,i) => i ? c.lineTo(X(p[0]),Y(p[1])) : c.moveTo(X(p[0]),Y(p[1])));
+    c.strokeStyle = "#5fdcd0"; c.setLineDash([2*DPR,4*DPR]); c.lineWidth = 2.5*DPR; c.stroke(); c.setLineDash([]);
+  }
+  // fleet radar mesh: radar cones, and road confirmed clear by any truck in the last FRESH s
+  if (opts.coop){
+    for (const e of Object.values(EDGES)){
+      const arr = main.scan[e.id];
+      for (let k=0;k<arr.length;k++){
+        const age = main.t - arr[k]; if (age >= FRESH) continue;
+        const p = edgePoint(e, k*SAMPLE); c.fillStyle = `rgba(95,220,208,${0.85*(1 - age/FRESH)})`;
+        c.beginPath(); c.arc(X(p.x), Y(p.y), 1.8*DPR, 0, Math.PI*2); c.fill();
+      }
+    }
+  }
+  for (const t of main.trucks){
+    if (!t.los) continue;
+    const p = main.pose(t), ang = Math.atan2(p.hy, p.hx);
+    c.beginPath(); c.moveTo(X(p.x), Y(p.y)); c.arc(X(p.x), Y(p.y), t.los*sc, ang-FOV, ang+FOV); c.closePath();
+    c.fillStyle = "rgba(95,220,208,.10)"; c.fill();
+  }
+  // places
+  const place = (x,y,txt,sub) => {
+    c.fillStyle = "#e4ebe8"; c.font = `600 ${13*DPR}px "Barlow Condensed", sans-serif`; c.textAlign = "left";
+    c.fillText(txt.toUpperCase(), X(x), Y(y)); if (sub){ c.fillStyle = "#b8a99c"; c.font = `${11*DPR}px "IBM Plex Sans", sans-serif`; c.fillText(sub, X(x), Y(y)+13*DPR); }
+  };
+  const mark = (x,y,col) => { c.fillStyle = col; c.fillRect(X(x)-6*DPR, Y(y)-6*DPR, 12*DPR, 12*DPR); };
+  mark(330,760,"#c4683f"); place(250,792,"Shovel A","Bench 3 · pit floor");
+  mark(220,300,"#c4683f"); place(160,335,"Shovel B","Bench 5");
+  mark(1390,212,"#8fa6b2"); place(1330,250,"Crusher","Hilltop");
+  place(1015,650,"Hairpin H1","single lane · token");
+  place(640,215,"Junction J2");
+  place(560,505,"Main ramp","1:16 grade");
+  // hazards & workers
+  for (const h of main.hazards){
+    const p = edgePoint(EDGES[h.edge], h.s), x = X(p.x), y = Y(p.y);
+    c.beginPath(); c.moveTo(x, y-9*DPR); c.lineTo(x+8*DPR, y+6*DPR); c.lineTo(x-8*DPR, y+6*DPR); c.closePath();
+    c.fillStyle = h.known ? "#e8b23a" : "rgba(232,178,58,.35)"; c.fill(); c.strokeStyle = "#1a1411"; c.lineWidth = 1.5*DPR; c.stroke();
+  }
+  for (const w of main.workers){
+    const e = EDGES[w.edge], p = edgePoint(e, w.s), off = w.onRoad ? 2 : e.half + 6;
+    const x = X(p.x - p.hy*off), y = Y(p.y + p.hx*off);
+    if (w.tagged){ for (const [r,a] of [[20,.35],[50,.22],[100,.12]]){ c.beginPath(); c.arc(x,y,r*sc,0,Math.PI*2); c.strokeStyle = `rgba(214,129,224,${a})`; c.lineWidth = 1.2*DPR; c.stroke(); } }
+    c.beginPath(); c.arc(x,y,4.5*DPR,0,Math.PI*2); c.fillStyle = w.tagged ? "#d681e0" : "#f0e0f2"; c.fill();
+  }
+  // V2V links
+  for (const [a,b] of main.v2vLinks()){
+    const p = main.pose(a), q = main.pose(b);
+    c.beginPath(); c.moveTo(X(p.x),Y(p.y)); c.lineTo(X(q.x),Y(q.y)); c.strokeStyle = "rgba(95,220,208,.32)"; c.lineWidth = 1.2*DPR; c.stroke();
+  }
+  // Fog Train couplings
+  for (const t of main.trucks){
+    if (!t.trainWith) continue;
+    const o = main.trucks.find(x => x.id === t.trainWith), p = main.pose(t), q = main.pose(o);
+    c.beginPath(); c.moveTo(X(p.x),Y(p.y)); c.lineTo(X(q.x),Y(q.y)); c.strokeStyle = "#e8b23a"; c.lineWidth = 3*DPR; c.setLineDash([6*DPR,4*DPR]); c.stroke(); c.setLineDash([]);
+  }
+  // fleet weather mesh: latest visibility reading per segment
+  for (const e of Object.values(EDGES)){
+    const r = main.wx[e.id]; if (!r || main.t - r.t > 120) continue;
+    const p = edgePoint(e, e.len*0.5), txt = `${Math.round(r.vis)} m`, m = fogMode(r.vis);
+    c.font = `500 ${10*DPR}px "IBM Plex Mono", monospace`; c.textAlign = "center";
+    const tw = c.measureText(txt).width + 8*DPR, x = X(p.x) - 26*DPR, y = Y(p.y) - 10*DPR;
+    c.fillStyle = "rgba(14,19,21,.8)"; c.fillRect(x - tw/2, y - 10*DPR, tw, 14*DPR);
+    c.fillStyle = { clear:"#4cc38a", caution:"#e8b23a", fog:"#f08a4b", dense:"#e5534b" }[m]; c.fillText(txt, x, y);
+  }
+  // fog overlay
+  if (showFog){
+    const dens = clamp(1 - Math.log(visGlobal.v/3)/Math.log(100), 0, 1);
+    if (dens > 0.02){
+      const drift = (main.t*0.8) % 1400;
+      for (const b of fogBlobs){
+        let x = b.x + drift; if (x > 1550) x -= 1400;
+        const g = c.createRadialGradient(X(x),Y(b.y),0,X(x),Y(b.y),b.r*sc);
+        g.addColorStop(0, `rgba(225,232,232,${0.30*dens*b.a})`); g.addColorStop(1, "rgba(225,232,232,0)");
+        c.fillStyle = g; c.fillRect(X(x)-b.r*sc, Y(b.y)-b.r*sc, b.r*2*sc, b.r*2*sc);
+      }
+    }
+  }
+  // trucks
+  for (const t of main.trucks){
+    const p = main.pose(t), x = X(p.x), y = Y(p.y), ang = Math.atan2(p.hy, p.hx);
+    if (t.fails.gnss && t.posErr > 0.1){ c.beginPath(); c.arc(x,y,Math.max(6*DPR, t.posErr*6*sc),0,Math.PI*2); c.fillStyle = "rgba(232,178,58,.18)"; c.fill(); }
+    c.save(); c.translate(x,y); c.rotate(ang);
+    const l = 15*sc*1.3, w = 8*sc*1.3;
+    c.fillStyle = t.loaded ? "#c4683f" : "#8fa6b2";
+    c.fillRect(-l/2, -w/2, l, w);
+    c.fillStyle = "#1a1411"; c.fillRect(l/2 - l*0.28, -w/2, l*0.28, w);
+    if (t === sel){ c.strokeStyle = "#5fdcd0"; c.lineWidth = 2*DPR; c.strokeRect(-l/2-3*DPR, -w/2-3*DPR, l+6*DPR, w+6*DPR); }
+    if (!main.connected(t)){ c.strokeStyle = "#e5534b"; c.setLineDash([3*DPR,3*DPR]); c.lineWidth = 1.5*DPR; c.strokeRect(-l/2-6*DPR, -w/2-6*DPR, l+12*DPR, w+12*DPR); c.setLineDash([]); }
+    c.restore();
+    c.font = `500 ${11*DPR}px "IBM Plex Mono", monospace`; c.textAlign = "center";
+    c.fillStyle = "rgba(14,19,21,.75)"; c.fillRect(x-13*DPR, y-24*DPR, 26*DPR, 14*DPR);
+    c.fillStyle = t === sel ? "#5fdcd0" : "#e4ebe8"; c.fillText(t.id, x, y-13*DPR);
+  }
+  mapCv._xf = { sc, ox, oy };
+}
+
+// ---------- HUD ----------
+function pathAhead(t, range, step){
+  const pts = [];
+  for (const leg of main.upcoming(t, range)){
+    const e = EDGES[leg.edge];
+    for (let r=0; r<=leg.rem; r+=step){
+      const d = leg.d0 + r; if (d > range) break;
+      const s = leg.sStart + leg.dir*r, p = edgePoint(e, s);
+      pts.push({ d, x:p.x, y:p.y, hx:p.hx*leg.dir, hy:p.hy*leg.dir, half:e.half, lanes:e.lanes, edge:e.id });
+    }
+  }
+  return pts;
+}
+function maneuver(t){
+  const pts = pathAhead(t, 320, 6); if (pts.length < 3) return null;
+  const h0 = pts[0]; let cum = 0;
+  for (let i=1;i<pts.length;i++){
+    const a = pts[i-1], b = pts[i];
+    cum += Math.atan2(a.hx*b.hy - a.hy*b.hx, a.hx*b.hx + a.hy*b.hy);
+    if (Math.abs(cum) > 0.75){
+      // find total turn of this bend
+      let tot = cum; for (let j=i+1;j<pts.length && pts[j].d < pts[i].d + 220;j++){ const p = pts[j-1], q = pts[j]; tot += Math.atan2(p.hx*q.hy - p.hy*q.hx, p.hx*q.hx + p.hy*q.hy); }
+      const startD = Math.max(0, pts[i].d - 60);
+      return { type: Math.abs(tot) > 2.4 ? "Hairpin" : "Curve", side: cum > 0 ? "right" : "left", d: startD };
+    }
+  }
+  const up = main.upcoming(t, 320);
+  const j = up.find(l => l.edge === "EJ" && l.idx !== t.legIdx);
+  if (j) return { type:"Junction J2", side:"", d:j.d0 };
+  return { type:"Straight", side:"", d:pts[pts.length-1].d };
+}
+function drawHUD(){
+  const [W,H] = fit(hudCv), c = hudCv.getContext("2d"), t = sel;
+  const P = main.pose(t), L = main.cur(t), vis = localVis(L.edge), mode = fogMode(vis);
+  const fogAmt = clamp(1 - Math.log(vis/3)/Math.log(80), 0, 1);
+  const HOR = H*0.42, FOC = W*0.55, CAMH = 4.2;
+  const synth = opts.synth;
+  // sky / ground
+  let g = c.createLinearGradient(0,0,0,H);
+  if (synth){ g.addColorStop(0, "#5f8db0"); g.addColorStop(0.42, "#c9c2b0"); g.addColorStop(0.43, "#6b4a36"); g.addColorStop(1, "#4a3022"); }
+  else { g.addColorStop(0, "#4d5a60"); g.addColorStop(0.4, "#6f6a62"); g.addColorStop(1, "#3c2a20"); }
+  c.fillStyle = g; c.fillRect(0,0,W,H);
+  const proj = (x,y,z=0) => { const dx = x-P.x, dy = y-P.y; const f = dx*P.hx + dy*P.hy, l = -dx*P.hy + dy*P.hx; return f > 5 ? { f, sx: W/2 + l*FOC/f, sy: HOR + (CAMH-z)*FOC/f } : null; };
+  const pts = pathAhead(t, 300, 3);
+  const off = (p, o, z=0) => proj(p.x + (-p.hy)*o, p.y + p.hx*o, z);
+  const edgeLine = (side) => pts.map(p => off(p, side*p.half));
+  const Lft = edgeLine(-1), Rgt = edgeLine(1);
+  let started = false;
+  if (synth){
+    // Synthetic vision: the clear-day 3D twin of this road, rendered from the truck's own pose (painter's order, far to near)
+    const PIT = [640, 560], quad = (a,b,c2,d,col) => { if (!a||!b||!c2||!d) return; c.beginPath(); c.moveTo(a.sx,a.sy); c.lineTo(b.sx,b.sy); c.lineTo(c2.sx,c2.sy); c.lineTo(d.sx,d.sy); c.closePath(); c.fillStyle = col; c.fill(); };
+    const haze = (rgb, f) => { const k = Math.min(f/320, 1)*0.55; return `rgb(${rgb.map((v,i) => Math.round(v + ([201,194,176][i]-v)*k)).join(",")})`; };
+    for (let i=pts.length-1;i>0;i--){
+      const p = pts[i], q = pts[i-1], f = p.d;
+      const stale = main.unmapped && main.unmapped.edge === p.edge;
+      // the side farther from the pit centre is the bench wall going up; the near side drops to the bench below
+      const sideOut = Math.hypot(p.x + (-p.hy)*p.half - PIT[0], p.y + p.hx*p.half - PIT[1]) > Math.hypot(p.x - (-p.hy)*p.half - PIT[0], p.y - p.hx*p.half - PIT[1]) ? 1 : -1;
+      const wall = sideOut, drop = -sideOut;
+      quad(off(p, drop*(p.half+3), 0), off(q, drop*(q.half+3), 0), off(q, drop*(q.half+40), -14), off(p, drop*(p.half+40), -14), haze([74,48,34], f));
+      quad(off(p, wall*(p.half+2), 0), off(q, wall*(q.half+2), 0), off(q, wall*(q.half+7), 9), off(p, wall*(p.half+7), 9), haze(i % 6 < 3 ? [128,78,52] : [118,72,48], f));
+      quad(off(p, -p.half, 0), off(q, -q.half, 0), off(q, q.half, 0), off(p, p.half, 0), stale ? "rgba(232,178,58,.25)" : haze(i % 4 < 2 ? [96,80,68] : [90,75,64], f));
+      quad(off(p, drop*p.half, 0), off(q, drop*q.half, 0), off(q, drop*(q.half+3), 1.6), off(p, drop*(p.half+3), 1.6), haze([156,118,88], f));
+    }
+  } else {
+    // real road, only visible within sight distance
+    c.beginPath();
+    for (let i=0;i<pts.length;i++){ const a = Lft[i]; if (!a || pts[i].d > vis*1.6) break; started ? c.lineTo(a.sx,a.sy) : (c.moveTo(a.sx,a.sy), started = true); }
+    for (let i=pts.length-1;i>=0;i--){ const a = Rgt[i]; if (!a || pts[i].d > vis*1.6) continue; c.lineTo(a.sx,a.sy); }
+    c.closePath(); c.fillStyle = "rgba(92,74,62,.9)"; c.fill();
+    // fog wall
+    c.fillStyle = `rgba(200,206,205,${0.15 + 0.8*fogAmt})`; c.fillRect(0,0,W,H);
+  }
+  g = c.createLinearGradient(0,H*0.75,0,H); g.addColorStop(0,"rgba(0,0,0,0)"); g.addColorStop(1,"rgba(20,16,14,.35)"); c.fillStyle = g; c.fillRect(0,H*0.75,W,H*0.25);
+  // virtual road: my lane ribbon up to the confirmed-clear distance
+  const clearD = Math.min(t.clear, 300);
+  // my lane is left of the centreline (keep left); single-lane sections use the full width
+  c.beginPath(); started = false; const back = [];
+  for (let i=0;i<pts.length;i++){
+    const p = pts[i]; if (p.d > clearD) break;
+    const oL = -p.half, oR = p.lanes === 2 ? 0 : p.half;
+    const a = proj(p.x + (-p.hy)*oL, p.y + p.hx*oL), b = proj(p.x + (-p.hy)*oR, p.y + p.hx*oR);
+    if (!a || !b) continue; started ? c.lineTo(a.sx,a.sy) : (c.moveTo(a.sx,a.sy), started = true); back.push(b);
+  }
+  for (let i=back.length-1;i>=0;i--) c.lineTo(back[i].sx, back[i].sy);
+  c.closePath(); c.fillStyle = "rgba(76,195,138,.18)"; c.fill();
+  // berms
+  c.shadowColor = "#5fdcd0"; c.shadowBlur = 8*DPR;
+  for (const line of [Lft, Rgt]){
+    c.beginPath(); started = false;
+    for (const a of line){ if (!a){ started = false; continue; } started ? c.lineTo(a.sx,a.sy) : (c.moveTo(a.sx,a.sy), started = true); }
+    c.strokeStyle = "#5fdcd0"; c.lineWidth = 3*DPR; c.stroke();
+  }
+  c.shadowBlur = 0;
+  // centre line
+  c.beginPath(); started = false;
+  for (const p of pts){ if (p.lanes !== 2){ started = false; continue; } const a = proj(p.x,p.y); if (!a){ started = false; continue; } started ? c.lineTo(a.sx,a.sy) : (c.moveTo(a.sx,a.sy), started = true); }
+  c.setLineDash([10*DPR,10*DPR]); c.strokeStyle = "rgba(95,220,208,.55)"; c.lineWidth = 1.5*DPR; c.stroke(); c.setLineDash([]);
+  // stop bar at the end of the confirmed-clear distance
+  if (t.clear < 300){
+    const p = pts.find(q => q.d >= t.clear);
+    if (p){ const a = proj(p.x + (-p.hy)*(-p.half), p.y + p.hx*(-p.half)), b = proj(p.x + (-p.hy)*(p.half), p.y + p.hx*(p.half)); if (a && b){ c.beginPath(); c.moveTo(a.sx,a.sy); c.lineTo(b.sx,b.sy); c.strokeStyle = "#e5534b"; c.lineWidth = 4*DPR; c.stroke(); } }
+  }
+  // objects known via V2V / radar
+  const objs = [];
+  for (const o of main.trucks){
+    if (o === t) continue; const q = main.pose(o); const pr = proj(q.x,q.y); if (!pr || pr.f > 300) continue;
+    const known = (main.connected(o) && main.connected(t)) || (!t.fails.radar && pr.f < RADAR);
+    if (known) objs.push({ pr, kind:"truck", o });
+  }
+  for (const w of main.workers){ const a = t.alerts.find(x => x.k === "w"+w.id); if (!a) continue; const e = EDGES[w.edge], p = edgePoint(e, w.s), o = w.onRoad ? 2 : e.half + 6; const pr = proj(p.x - p.hy*o, p.y + p.hx*o); if (pr) objs.push({ pr, kind:"person", via: a.txt.includes("via") ? w.by : null }); }
+  for (const h of main.hazards){ if (!t.knownHaz.has(h.id)) continue; const p = edgePoint(EDGES[h.edge], h.s); const pr = proj(p.x, p.y); if (pr) objs.push({ pr, kind:"rock", via: h.by !== t.id ? h.by : null }); }
+  objs.sort((a,b) => b.pr.f - a.pr.f);
+  for (const ob of objs){
+    const k = FOC/ob.pr.f, x = ob.pr.sx, y = ob.pr.sy;
+    if (ob.kind === "truck"){
+      const same = main.cur(ob.o).dir === L.dir && main.cur(ob.o).edge === L.edge || false;
+      const w = 7*k, h = 6*k; c.strokeStyle = same ? "#e8b23a" : "#f08a4b"; c.lineWidth = 2*DPR; c.strokeRect(x-w/2, y-h, w, h);
+      c.fillStyle = "rgba(14,19,21,.7)"; c.font = `500 ${11*DPR}px "IBM Plex Mono", monospace`; c.textAlign = "center";
+      const txt = `${ob.o.id} ${Math.round(ob.pr.f)} m`; const tw = c.measureText(txt).width + 8*DPR; c.fillRect(x-tw/2, y-h-18*DPR, tw, 15*DPR);
+      c.fillStyle = same ? "#e8b23a" : "#f08a4b"; c.fillText(txt, x, y-h-7*DPR);
+    } else if (ob.kind === "person"){
+      const h = Math.max(10*DPR, 1.8*k); c.fillStyle = "#d681e0"; c.beginPath(); c.arc(x, y-h, h*0.18, 0, Math.PI*2); c.fill(); c.fillRect(x-h*0.12, y-h*0.8, h*0.24, h*0.8);
+    } else {
+      const s = Math.max(9*DPR, 2.5*k); c.beginPath(); c.moveTo(x, y-s); c.lineTo(x+s*0.9, y); c.lineTo(x-s*0.9, y); c.closePath(); c.fillStyle = "#e8b23a"; c.fill();
+    }
+    if (ob.via){
+      c.font = `500 ${10*DPR}px "IBM Plex Mono", monospace`; c.textAlign = "center";
+      const txt = `seen by ${ob.via}`, tw = c.measureText(txt).width + 8*DPR;
+      c.fillStyle = "rgba(14,19,21,.75)"; c.fillRect(x - tw/2, y + 4*DPR, tw, 14*DPR); c.fillStyle = "#5fdcd0"; c.fillText(txt, x, y + 14*DPR);
+    }
+  }
+  // ---- overlays ----
+  const pad = 12*DPR;
+  const pill = (x, y, txt, col, align="left", bg="rgba(14,19,21,.72)") => {
+    c.font = `600 ${13*DPR}px "Barlow Condensed", sans-serif`; const tw = c.measureText(txt).width + 14*DPR, hh = 20*DPR;
+    const xx = align === "right" ? x - tw : align === "center" ? x - tw/2 : x;
+    c.fillStyle = bg; c.fillRect(xx, y, tw, hh); c.strokeStyle = col; c.lineWidth = 1*DPR; c.strokeRect(xx+.5, y+.5, tw-1, hh-1);
+    c.fillStyle = col; c.textAlign = "left"; c.fillText(txt, xx + 7*DPR, y + 14.5*DPR); return hh;
+  };
+  const MC = { clear:"#4cc38a", caution:"#e8b23a", fog:"#f08a4b", dense:"#e5534b" };
+  pill(pad, pad, `${MODE_LABEL[mode].toUpperCase()} · REAL SIGHT ${Math.round(vis)} M`, MC[mode]);
+  if (synth) pill(pad, pad+26*DPR, main.unmapped && main.unmapped.edge === L.edge ? "SYNTHETIC VIEW · MAP STALE HERE · RADAR ONLY" : "SYNTHETIC VIEW · CLEAR-DAY 3D TWIN", main.unmapped && main.unmapped.edge === L.edge ? "#e8b23a" : "#9fc3dc");
+  if (t.trainWith){ const o = main.trucks.find(x => x.id === t.trainWith), q = main.pose(o); pill(pad, pad+(synth?52:26)*DPR, `FOG TRAIN · COUPLED TO ${o.id} · ${Math.round(Math.hypot(q.x-P.x, q.y-P.y))} M`, "#e8b23a"); }
+  const posTxt = t.fails.gnss ? `DEAD-RECKONING ±${t.posErr.toFixed(1)} M` : "RTK FIX ±2 CM";
+  pill(W-pad, pad, posTxt, t.fails.gnss ? "#e8b23a" : "#4cc38a", "right");
+  if (!main.connected(t)) pill(W-pad, pad+26*DPR, t.fails.comms ? "ALL COMMS LOST" : "V2V OFFLINE · DARK", "#e5534b", "right");
+  if (t.fails.radar) pill(W-pad, pad+(main.connected(t)?26:52)*DPR, "RADAR FAULT", "#e5534b", "right");
+  // maneuver
+  const m = maneuver(t);
+  if (m && t.state === "drive"){
+    const arrow = m.side === "left" ? "◀" : m.side === "right" ? "▶" : "▲";
+    pill(W/2, pad+30*DPR, `${arrow} ${m.type.toUpperCase()} ${m.side.toUpperCase()} · ${Math.round(m.d)} M`.replace("  "," "), "#5fdcd0", "center");
+  }
+  // priority alert
+  let alert = null;
+  const rank = { stop:3, warn:2, info:1 };
+  if (t.row) alert = { lvl: t.row.go ? "go" : "warn", txt: t.row.go ? `PROCEED · ${t.row.zone.toUpperCase()}` : `YIELD · HOLD AT BAY · ${t.row.zone.toUpperCase()}` };
+  for (const a of t.alerts){ if (!alert || rank[a.lvl] > (rank[alert.lvl] || 1.5)) alert = a; }
+  if (t.state !== "drive") alert = { lvl:"info", txt: t.state === "load" ? `LOADING AT ${PLACES[t.route].toUpperCase()}` : "DUMPING AT CRUSHER" };
+  if (alert){
+    const col = { stop:"#e5534b", warn:"#e8b23a", go:"#4cc38a", info:"#e4ebe8" }[alert.lvl];
+    c.font = `700 ${20*DPR}px "Barlow Condensed", sans-serif`; const tw = c.measureText(alert.txt).width + 26*DPR, hh = 32*DPR, y = H*0.52;
+    c.fillStyle = "rgba(14,19,21,.8)"; c.fillRect(W/2 - tw/2, y, tw, hh); c.fillStyle = col; c.fillRect(W/2 - tw/2, y, 4*DPR, hh);
+    c.textAlign = "center"; c.fillText(alert.txt, W/2, y + 23*DPR);
+  }
+  // speed
+  c.textAlign = "left"; c.fillStyle = "rgba(14,19,21,.72)"; c.fillRect(pad, H-pad-62*DPR, 140*DPR, 62*DPR);
+  c.fillStyle = "#e4ebe8"; c.font = `700 ${40*DPR}px "Barlow Condensed", sans-serif`; c.fillText(Math.round(t.v*KMH), pad+10*DPR, H-pad-20*DPR);
+  c.font = `600 ${12*DPR}px "Barlow Condensed", sans-serif`; c.fillStyle = "#8b9b99"; c.fillText("KM/H", pad+70*DPR, H-pad-38*DPR);
+  c.fillStyle = "#5fdcd0"; c.fillText(`ADVISED ${Math.round(t.advised*KMH)}`, pad+70*DPR, H-pad-22*DPR);
+  // block LEDs
+  const nb = 6, bw = 22*DPR, gap = 5*DPR, bx = W - pad - nb*(bw+gap) + gap, by = H - pad - 34*DPR;
+  c.fillStyle = "rgba(14,19,21,.72)"; c.fillRect(bx-8*DPR, by-20*DPR, nb*(bw+gap)+11*DPR, 54*DPR);
+  c.fillStyle = "#8b9b99"; c.font = `600 ${11*DPR}px "Barlow Condensed", sans-serif`; c.fillText(`BLOCKS AHEAD · CLEAR ${t.clear > 400 ? "400+" : Math.round(t.clear)} M`, bx, by-6*DPR);
+  for (let i=0;i<nb;i++){ const d0 = i*BLOCK; const ok = t.clear > d0 + BLOCK; const part = !ok && t.clear > d0; c.fillStyle = ok ? "#4cc38a" : part ? "#e8b23a" : "#e5534b"; c.fillRect(bx + i*(bw+gap), by, bw, 12*DPR); }
+}
+
+// ---------- charts ----------
+function drawStopChart(){
+  const [W,H] = fit(stopCv), c = stopCv.getContext("2d");
+  c.clearRect(0,0,W,H);
+  const L = 44*DPR, R = 12*DPR, T = 12*DPR, B = 30*DPR, vmax = 40, dmax = 60;
+  const X = v => L + v/vmax*(W-L-R), Y = d => H - B - Math.min(d,dmax)/dmax*(H-T-B);
+  c.strokeStyle = "rgba(139,155,153,.18)"; c.lineWidth = 1; c.fillStyle = "#8b9b99"; c.font = `${11*DPR}px "IBM Plex Mono", monospace`;
+  for (let d=0; d<=dmax; d+=20){ c.beginPath(); c.moveTo(L, Y(d)); c.lineTo(W-R, Y(d)); c.stroke(); c.textAlign = "right"; c.fillText(d+" m", L-6*DPR, Y(d)+4*DPR); }
+  for (let v=0; v<=vmax; v+=10){ c.textAlign = "center"; c.fillText(v, X(v), H-B+16*DPR); }
+  c.textAlign = "right"; c.fillText("km/h", W-R, H-4*DPR);
+  const curve = (grade, col, w) => { c.beginPath(); for (let v=0; v<=vmax; v+=0.5){ const d = stopDist(v/KMH, grade); v ? c.lineTo(X(v),Y(d)) : c.moveTo(X(v),Y(d)); if (d > dmax) break; } c.strokeStyle = col; c.lineWidth = w*DPR; c.stroke(); };
+  curve(0, "#c4683f", 2.5); curve(-0.0625, "#e5534b", 2);
+  const vis = Math.min(localVis(main.cur(sel).edge), dmax);
+  c.setLineDash([5*DPR,4*DPR]); c.beginPath(); c.moveTo(L, Y(vis)); c.lineTo(W-R, Y(vis)); c.strokeStyle = "#e4ebe8"; c.lineWidth = 1.5*DPR; c.stroke(); c.setLineDash([]);
+  const vv = vFromDist(vis, -0.0625)*KMH;
+  c.beginPath(); c.arc(X(vv), Y(vis), 4.5*DPR, 0, Math.PI*2); c.fillStyle = "#e4ebe8"; c.fill();
+  c.textAlign = "left"; c.font = `${11*DPR}px "IBM Plex Sans", sans-serif`;
+  c.fillStyle = "#e4ebe8"; c.fillText(`Driver sight ${Math.round(vis)} m → max ${vv.toFixed(0)} km/h on descent`, Math.min(X(vv)+8*DPR, W-R-230*DPR), Math.max(Y(vis)-8*DPR, T+12*DPR));
+  c.fillStyle = "#c4683f"; c.fillText("flat, wet", X(33), Y(stopDist(33/KMH,0))+16*DPR);
+  c.fillStyle = "#e5534b"; c.fillText("1:16 descent, wet", X(19), Y(stopDist(19/KMH,-0.0625))-8*DPR);
+}
+// nowcast per segment from the fleet weather mesh (simulated: the drifting fog bank, read ahead)
+const FC_EDGES = [["E2","#e8b23a"],["E3","#5fdcd0"],["E4","#d681e0"]];
+function drawForecast(){
+  const [W,H] = fit(fcCv), c = fcCv.getContext("2d");
+  c.clearRect(0,0,W,H);
+  const L = 44*DPR, R = 12*DPR, T = 12*DPR, B = 30*DPR, n = 13, STEP = 300;
+  const lg = v => Math.log(v/3)/Math.log(100);
+  const X = i => L + i/(n-1)*(W-L-R), Y = v => H - B - clamp(lg(v),0,1)*(H-T-B);
+  const bands = [[3,15,"rgba(229,83,75,.12)","Dense"],[15,50,"rgba(240,138,75,.10)","Fog"],[50,150,"rgba(232,178,58,.08)","Caution"],[150,300,"rgba(76,195,138,.08)","Clear"]];
+  for (const [a,b,col,lab] of bands){ c.fillStyle = col; c.fillRect(L, Y(b), W-L-R, Y(a)-Y(b)); c.fillStyle = "#8b9b99"; c.font = `${10*DPR}px "IBM Plex Sans", sans-serif`; c.textAlign = "left"; c.fillText(lab, L+4*DPR, Y(b)+12*DPR); }
+  c.fillStyle = "#8b9b99"; c.font = `${11*DPR}px "IBM Plex Mono", monospace`;
+  for (const v of [5,15,50,150]){ c.textAlign = "right"; c.fillText(v+" m", L-6*DPR, Y(v)+4*DPR); }
+  const clock0 = 6*3600 + main.t, hhmm = s => `${String(Math.floor(s/3600)%24).padStart(2,"0")}:${String(Math.floor(s%3600/60)).padStart(2,"0")}`;
+  for (let i=0;i<n;i+=3){ c.textAlign = "center"; c.fillText(hhmm(clock0 + i*STEP), X(i), H-B+16*DPR); }
+  const notes = [];
+  for (const [eid,col] of FC_EDGES){
+    const vals = []; for (let i=0;i<n;i++) vals.push(localVis(eid, main.t + i*STEP));
+    c.beginPath(); vals.forEach((v,i) => i ? c.lineTo(X(i),Y(v)) : c.moveTo(X(i),Y(v))); c.strokeStyle = col; c.lineWidth = 2*DPR; c.stroke();
+    c.beginPath(); c.arc(X(0), Y(vals[0]), 3.5*DPR, 0, Math.PI*2); c.fillStyle = col; c.fill();
+    c.font = `600 ${11*DPR}px "Barlow Condensed", sans-serif`; c.textAlign = "right"; c.fillText(EDGES[eid].name, W-R-2*DPR, Y(vals[n-1]) - 5*DPR);
+    const best = Math.max(...vals), bi = vals.indexOf(best), worst = Math.min(...vals), wi = vals.indexOf(worst);
+    if (best > worst*1.4) notes.push(`${EDGES[eid].name}: best ${Math.round(best)} m around ${hhmm(clock0 + bi*STEP)}, worst ${Math.round(worst)} m around ${hhmm(clock0 + wi*STEP)}`);
+  }
+  document.getElementById("fcText").textContent = notes.length ? notes.join(". ") + ". The control room uses this to plan which face to load from next." : weather.drift ? "Visibility steady across segments for the next hour." : "Fog drift is off: visibility held steady.";
+}
+
+// ---------- DOM panels ----------
+const $ = id => document.getElementById(id);
+function renderPicker(){
+  $("truckpick").innerHTML = "";
+  for (const t of main.trucks){ const b = document.createElement("button"); b.textContent = t.id; b.className = t === sel ? "on" : ""; b.onclick = () => select(t); $("truckpick").appendChild(b); }
+}
+function select(t){ sel = t; renderPicker(); syncFailButtons(); $("hudTitle").textContent = t.id; $("failTruck").textContent = t.id; }
+function syncFailButtons(){
+  document.querySelectorAll("[data-fail]").forEach(b => { const on = sel.fails[b.dataset.fail]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
+  const any = {}; for (const t of main.trucks) for (const k in t.fails) any[k] = any[k] || t.fails[k];
+  document.querySelectorAll(".ladder tr[data-l]").forEach(r => r.classList.toggle("active", !!any[r.dataset.l]));
+}
+const fmtClock = s => { s = 6*3600 + s; const h = Math.floor(s/3600)%24, m = Math.floor(s%3600/60), x = Math.floor(s%60); return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}`; };
+const avg = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+let lastPanel = 0, lastLogLen = -1, lastLogTop = null;
+function renderPanels(){
+  $("clock").textContent = fmtClock(main.t);
+  const [fr, vo, cd] = sims.map(s => s.tonnes), mx = Math.max(fr, vo, cd, 1);
+  $("bFR").style.width = (fr/mx*100)+"%"; $("bVO").style.width = (vo/mx*100)+"%"; $("bCD").style.width = (cd/mx*100)+"%";
+  $("nFR").textContent = fr.toLocaleString("en-IN")+" t"; $("nVO").textContent = vo.toLocaleString("en-IN")+" t"; $("nCD").textContent = cd.toLocaleString("en-IN")+" t";
+  if (cd >= 300){ $("kRetained").textContent = Math.round(fr/cd*100)+"%"; $("kRetainedS").textContent = `Vision-only: ${Math.round(vo/cd*100)}%`; }
+  else { $("kRetained").textContent = "–"; $("kRetainedS").textContent = "Needs a few haul cycles"; }
+  const c1 = avg(main.cycles), c2 = avg(sims[1].cycles);
+  $("kCycle").textContent = c1 ? (c1/60).toFixed(1)+" min" : "–"; $("kCycleS").textContent = `Vision-only: ${c2 ? (c2/60).toFixed(1)+" min" : "–"}`;
+  $("kRowS").textContent = `Right-of-way calls: ${main.rowCalls}`; $("kNear").textContent = main.nearMiss; $("kNearS").textContent = `Hazards shared on the mesh: ${main.hazShared}`;
+  const drv = main.trucks.filter(t => t.state === "drive" && !t.fails.radar);
+  if (drv.length){ const own = avg(drv.map(t => t.los)), fl = avg(drv.map(t => t.fleetClear)); $("kSee").textContent = Math.round(opts.coop ? fl : own) + " m"; $("kSeeS").textContent = opts.coop ? `Own radar alone: ${Math.round(own)} m` : `Mesh off · with mesh: ${Math.round(fl)} m`; }
+  $("kTrain").textContent = main.trainPasses; $("kTrainS").textContent = `Extra trucks through on a shared token · ${main.trucks.filter(t => t.trainWith).length} coupled now`;
+  // facts
+  const t = sel, L = main.cur(t), e = EDGES[L.edge], grade = e.grade*L.dir;
+  $("fSpeed").textContent = `${Math.round(t.v*KMH)} / ${Math.round(t.advised*KMH)} km/h`;
+  $("fClear").textContent = t.clear > 400 ? "400+ m" : Math.round(t.clear)+" m";
+  $("fStop").textContent = stopDist(t.v, grade).toFixed(1)+" m";
+  $("fPos").textContent = t.fails.gnss ? `DR ±${t.posErr.toFixed(1)} m` : "RTK ±2 cm";
+  $("fV2V").textContent = t.state !== "drive" ? "–" : t.fails.radar ? `fault / ${Math.round(t.fleetClear)} m` : `${Math.round(t.los)} / ${main.connected(t) ? Math.round(t.fleetClear)+" m" : "offline"}`;
+  $("fWhy").textContent = t.state !== "drive" ? (t.state === "load" ? "loading" : "dumping") : t.why;
+  // fleet table
+  const rows = main.trucks.map(t => {
+    const L = main.cur(t), e = EDGES[L.edge], mode = fogMode(localVis(L.edge));
+    const health = Object.entries(t.fails).filter(([,v]) => v).map(([k]) => ({gnss:"GNSS",v2v:"V2V",radar:"Radar",comms:"Comms"})[k]);
+    const st = t.state === "load" ? "Loading" : t.state === "dump" ? "Dumping" : t.loaded ? "Loaded ↑" : "Empty ↓";
+    return `<tr data-id="${t.id}" class="${t===sel?"sel":""}"><td class="mono">${t.id}</td><td><span class="dot" style="background:${t.loaded?"var(--ore)":"#8fa6b2"}"></span>${st}</td><td>${e.name}</td><td class="num">${Math.round(t.v*KMH)}</td><td class="num">${Math.round(t.advised*KMH)}</td><td><span class="chip ${mode}">${MODE_LABEL[mode]}</span></td><td style="color:${health.length?"var(--stop)":"var(--go)"}">${health.length ? health.join(", ")+" fault" : "OK"}</td></tr>`;
+  }).join("");
+  $("fleet").innerHTML = rows;
+  // log (only when changed)
+  if (main.events.length !== lastLogLen || main.events[0] !== lastLogTop){
+    lastLogLen = main.events.length; lastLogTop = main.events[0];
+    $("log").innerHTML = main.events.slice(0,60).map(ev => `<li class="${ev.level}"><time>${fmtClock(ev.t).slice(0,5)}</time><span>${ev.msg}</span></li>`).join("");
+  }
+  $("approveMap").hidden = !(main.unmapped && main.unmapped.tracedBy);
+  $("clearRock").hidden = !main.hazards.length;
+  $("stopAll").classList.toggle("on", main.stopAll); $("stopAll").textContent = main.stopAll ? "Release stop-all" : "Stop all trucks";
+  drawStopChart(); drawForecast();
+}
+const PHRASES = {
+  en:{ yield:"Yield. Hold at the bay.", haz:"Rockfall ahead. Slow down.", w:"Person ahead.", dark:"Dark truck nearby. Slow down.", train:"Fog Train coupled.", on:"FogRail voice cues on." },
+  hi:{ yield:"रुकिए। बे पर इंतज़ार कीजिए।", haz:"आगे चट्टान गिरी है। धीरे चलिए।", w:"आगे कोई व्यक्ति है।", dark:"पास का ट्रक संपर्क से बाहर है। धीरे चलिए।", train:"फ़ॉग ट्रेन जुड़ गई।", on:"फ़ॉगरेल आवाज़ संकेत चालू।" }
+};
+function say(txt){ try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(txt); u.lang = voiceOn === "hi" ? "hi-IN" : "en-IN"; speechSynthesis.speak(u); } catch(e){} }
+function speakAlerts(){
+  if (!voiceOn || !("speechSynthesis" in window)) return;
+  const keys = new Set(); let msg = null;
+  const t = sel;
+  if (t.row && !t.row.go) keys.add("yield:"+t.row.zone);
+  if (t.trainWith) keys.add("train:"+t.trainWith);
+  for (const a of t.alerts) if (a.lvl !== "info") keys.add(a.k);
+  const P = PHRASES[voiceOn];
+  for (const k of keys) if (!lastSpoken.has(k)){
+    if (k.startsWith("yield")) msg = P.yield;
+    else if (k.startsWith("haz")) msg = P.haz;
+    else if (k.startsWith("w")) msg = P.w;
+    else if (k.startsWith("dark")) msg = P.dark;
+    else if (k.startsWith("train") && !msg) msg = P.train;
+  }
+  lastSpoken = keys;
+  if (msg) say(msg);
+}
+
+// ---------- controls ----------
+const SPEEDS = [1,5,10,30];
+for (const s of SPEEDS){ const b = document.createElement("button"); b.textContent = s+"×"; b.dataset.s = s; b.className = s === speed ? "on" : ""; b.onclick = () => { speed = s; document.querySelectorAll("#speeds button").forEach(x => x.classList.toggle("on", +x.dataset.s === speed)); }; $("speeds").appendChild(b); }
+$("play").onclick = () => { running = !running; $("play").textContent = running ? "Pause" : "Play"; $("play").setAttribute("aria-label", running ? "Pause simulation" : "Play simulation"); };
+$("reset").onclick = () => { resetAll(); };
+const sliderToVis = v => 3*Math.pow(100, v/100), visToSlider = x => Math.log(x/3)/Math.log(100)*100;
+function setVis(x, quiet){
+  const old = fogMode(visGlobal.v);
+  visGlobal.v = clamp(x, 3, 300); $("fog").value = visToSlider(visGlobal.v);
+  $("fogVal").textContent = Math.round(visGlobal.v) + " m";
+  const m = fogMode(visGlobal.v); $("fogChip").className = "chip " + m; $("fogChip").textContent = MODE_LABEL[m];
+  if (!quiet && m !== old) main.log(`Pit visibility now ${Math.round(visGlobal.v)} m. Segments switch to ${MODE_LABEL[m]} mode`, m === "clear" ? "go" : "warn");
+}
+$("fog").oninput = e => setVis(sliderToVis(+e.target.value));
+document.querySelectorAll("[data-vis]").forEach(b => b.onclick = () => setVis(+b.dataset.vis));
+$("fogShow").onclick = () => { showFog = !showFog; $("fogShow").classList.toggle("on", showFog); $("fogShow").setAttribute("aria-pressed", showFog); };
+$("voice").onclick = () => { voiceOn = voiceOn === false ? "en" : voiceOn === "en" ? "hi" : false; $("voice").textContent = `Voice: ${voiceOn === "en" ? "English" : voiceOn === "hi" ? "हिन्दी" : "off"}`; $("voice").classList.toggle("on", !!voiceOn); lastSpoken = new Set(); if (voiceOn) say(PHRASES[voiceOn].on); };
+const toggle = (id, get, set, onLog) => { $(id).onclick = () => { set(!get()); $(id).classList.toggle("on", get()); $(id).setAttribute("aria-pressed", get()); if (onLog) main.log(onLog(get()), get() ? "go" : "warn"); }; };
+toggle("synth", () => opts.synth, v => opts.synth = v);
+toggle("drift", () => weather.drift, v => weather.drift = v);
+toggle("optCoop", () => opts.coop, v => opts.coop = v, on => on ? "Fleet radar mesh on: trucks share one picture of the road" : "Fleet radar mesh off: each truck trusts only its own radar");
+toggle("optTrain", () => opts.train, v => opts.train = v, on => on ? "Fog Train on: coupled trucks run moving-block gaps" : "Fog Train off: fixed 100 m blocks, one truck per token");
+$("evRock").onclick = () => { if (main.hazards.length) return; main.hazards.push({ id:++hazSeq, edge:"E3", s:330, known:false, by:null }); for (const t of main.trucks) t.knownHaz.clear(); main.log("Rockfall from bench wall on Main ramp (not yet detected)", "warn"); };
+// put a person where no truck is within reach, so the demo shows early warning rather than a surprise
+function quietSpot(edgeId){
+  const e = EDGES[edgeId]; let best = e.len/2, bd = -1;
+  for (let s=120; s<=e.len-120; s+=20){ const p = edgePoint(e, s); let md = 1e9; for (const t of main.trucks){ const q = main.pose(t); md = Math.min(md, Math.hypot(p.x-q.x, p.y-q.y)); } if (md > bd){ bd = md; best = s; } }
+  return best;
+}
+$("evWorker").onclick = () => { main.workers.push({ id:++workerSeq, label:`Surveyor W${workerSeq}`, edge:"E4", s:quietSpot("E4"), tagged:true, onRoad:true, until:main.t+70, temp:true, seen:new Set() }); main.log(`Surveyor W${workerSeq} (UWB tag) walked onto Crusher road`, "warn"); };
+$("evUntagged").onclick = () => { main.workers.push({ id:++workerSeq, label:`untagged person P${workerSeq}`, edge:"E2", s:EDGES.E2.len*0.55, tagged:false, onRoad:true, until:main.t+150, temp:true, seen:new Set(), by:null, shared:false }); main.log(`Untagged person P${workerSeq} walking inside Hairpin H1, behind the bend (no radio tag)`, "stop"); };
+$("evNewRoad").onclick = () => { if (main.unmapped) return; main.unmapped = { edge:"E1", tracedBy:null, pathfinder:null, trace:[] }; for (const t of main.trucks) t.pathfinder = false; main.log("Bench 3 road re-cut overnight. Map marked stale. Next truck runs as pathfinder", "warn"); };
+$("approveMap").onclick = () => { if (!main.unmapped) return; main.log(`Supervisor approved new Bench 3 map from ${main.unmapped.tracedBy}'s RTK + berm-radar trace. Normal fog speeds restored`, "go"); main.unmapped = null; for (const t of main.trucks) t.pathfinder = false; };
+$("clearRock").onclick = () => { main.hazards = []; for (const t of main.trucks) t.knownHaz.clear(); main.log("Rockfall cleared by dozer. Hazard pin removed for all trucks", "go"); };
+$("stopAll").onclick = () => { main.stopAll = !main.stopAll; main.log(main.stopAll ? "Supervisor issued STOP-ALL to the fleet" : "Supervisor released stop-all", main.stopAll ? "stop" : "go"); };
+const FAIL_TXT = { gnss:"lost GNSS. Dead-reckoning on IMU + odometry, berm radar holding lateral, 15 km/h", v2v:"V2V radio dead. Truck is dark: blocks around it held red", radar:"radar fault. Blocks + breadcrumbs only, 20 km/h", comms:"lost all comms. Controlled stop" };
+document.querySelectorAll("[data-fail]").forEach(b => b.onclick = () => { const k = b.dataset.fail; sel.fails[k] = !sel.fails[k]; main.log(sel.fails[k] ? `${sel.id} ${FAIL_TXT[k]}` : `${sel.id} ${k.toUpperCase()} restored`, sel.fails[k] ? "stop" : "go"); syncFailButtons(); });
+$("restore").onclick = () => { for (const t of main.trucks) for (const k in t.fails) t.fails[k] = false; main.log("All faults restored", "go"); syncFailButtons(); };
+$("fleet").onclick = e => { const tr = e.target.closest("tr[data-id]"); if (tr) select(main.trucks.find(t => t.id === tr.dataset.id)); };
+mapCv.addEventListener("click", e => {
+  const r = mapCv.getBoundingClientRect(), xf = mapCv._xf; if (!xf) return;
+  const wx = ((e.clientX - r.left)*DPR - xf.ox)/xf.sc, wy = ((e.clientY - r.top)*DPR - xf.oy)/xf.sc;
+  let best = null, bd = 60; for (const t of main.trucks){ const p = main.pose(t), d = Math.hypot(p.x-wx, p.y-wy); if (d < bd){ bd = d; best = t; } }
+  if (best) select(best);
+});
+
+// ---------- loop ----------
+let acc = 0, lastT = performance.now();
+function frame(now){
+  const dt = Math.min(0.1, (now - lastT)/1000); lastT = now;
+  if (running){ acc += dt*speed; let n = 0; while (acc >= 0.1 && n < 60){ for (const s of sims) s.step(0.1); weather.t = main.t; acc -= 0.1; n++; } if (n === 60) acc = 0; }
+  drawMap(); drawHUD();
+  if (now - lastPanel > 250){ lastPanel = now; renderPanels(); speakAlerts(); }
+  requestAnimationFrame(frame);
+}
+resetAll(); setVis(5, true);
+window.__fograil = { get sims(){ return sims; }, step(n){ for (let i=0;i<n;i++){ for (const s of sims) s.step(0.1); weather.t = main.t; } }, opts, weather, setVis, select:id => select(main.trucks.find(t => t.id === id)) };
+requestAnimationFrame(frame);
+})();
+</script>
